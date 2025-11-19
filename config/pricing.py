@@ -7,34 +7,35 @@ catalog (November 2025). Each model entry stores separate price points for
 standard input tokens, generated output tokens, and cached prompt tokens.
 """
 
+PROVIDER_NAME = "Azure OpenAI"
+
 PRICING = {
-
-    # AZURE OPENAI - COMMERCIAL REGIONS
-
-    "Azure OpenAI": {
+    PROVIDER_NAME: {
+        # ============================================
+        # AZURE OPENAI - COMMERCIAL REGIONS
+        # ============================================
         "East US": {
             "gpt-4o": {
-                "input_per_million": 2.50,
-                "output_per_million": 10.00,
-                "cached_per_million": 1.25
+                "input_per_million": 2.75,
+                "output_per_million": 11.00,
+                "cached_per_million": 1.375
             },
             "gpt-4o-mini": {
-                "input_per_million": 0.15,
-                "output_per_million": 0.60,
-                "cached_per_million": 0.075
+                "input_per_million": 0.165,
+                "output_per_million": 0.66,
+                "cached_per_million": 0.083
             },
             "gpt-4-turbo": {
-                "input_per_million": 10.00,
-                "output_per_million": 30.00,
+                "input_per_million": 11.00,
+                "output_per_million": 33.00,
                 "cached_per_million": 5.00
             },
            
-        }
-    },
+        },
 
-    # AZURE GOVERNMENT (US GOV REGIONS)
-
-    "Azure Government": {
+        # ============================================
+        # AZURE GOVERNMENT (US GOV REGIONS)
+        # ============================================
         "US Gov Virginia": {
             "gpt-4o": {
                 "input_per_million": 2.75,
@@ -50,26 +51,29 @@ PRICING = {
                 "input_per_million": 11.00,
                 "output_per_million": 33.00,
                 "cached_per_million": 5.50
-            }
-        }
+            },
     }
+}
 }
 
 
 def get_providers():
-    """Return list of available providers."""
-    return list(PRICING.keys())
+    """Return list of available providers (currently static)."""
+    return [PROVIDER_NAME]
 
 
 def get_regions(provider):
-    """Return list of regions for a given provider."""
-    return list(PRICING.get(provider, {}).keys())
-
+    """Return list of available regions for the provider (static)."""
+    if provider != PROVIDER_NAME:
+        return []
+    return list(PRICING[provider].keys())
 
 def get_models(provider, region):
-    """Return list of models for a provider and region."""
-    return list(PRICING.get(provider, {}).get(region, {}).keys())
-
+    """Return list of models for a provider and region"""
+    
+    if provider != PROVIDER_NAME:
+        return []
+    return list(PRICING[provider].get(region, {}).keys())
 
 def get_model_pricing(provider, region, model):
     """Return the pricing dict for a provider/region/model combination."""
