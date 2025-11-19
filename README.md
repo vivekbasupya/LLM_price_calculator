@@ -5,7 +5,9 @@ A clean and compact Flask application for calculating LLM pricing across differe
 ## 🚀 Features
 
 - **Document Upload**: Upload PDF, TXT, or DOCX files for automatic token estimation
-- **Manual Token Input**: Enter token count directly
+- **Prompt Text Estimation**: Paste the prompt that accompanies your documents and get instant token counts
+- **Manual Token Input**: Override the auto-calculated input tokens at any time
+- **Output Token Planning**: Capture expected completion tokens for full-funnel pricing
 - **Multi-Provider Support**: OpenAI, Azure, AWS Bedrock, Google Cloud
 - **Real-time Calculation**: Instant cost breakdown
 - **Clean UI**: Modern, responsive interface
@@ -80,6 +82,12 @@ http://localhost:5000
 - **Documents**: PDF, TXT, DOCX (max 16MB)
 - **Providers**: OpenAI, Azure, AWS Bedrock, Google Cloud
 - **Tokens**: Automatic estimation or manual input
+
+## 💵 Azure-style pricing
+
+- All model rates are now stored in USD **per 1,000,000 tokens** to match the Azure OpenAI catalog.
+- Each model has dedicated price points for **input**, **output**, and **cached prompt** tokens.
+- Cached token costs are assumed to apply to document uploads (ideal for prompt caching workflows). Update `config/pricing.py` if your workload uses a different split.
 
 ## 🔧 API Endpoints
 

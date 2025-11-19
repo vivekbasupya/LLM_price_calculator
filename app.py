@@ -3,7 +3,10 @@ from werkzeug.utils import secure_filename
 import os
 from pathlib import Path
 
-from config.pricing import PRICING, get_providers, get_regions, get_models, get_rate
+from config.pricing import (
+    PRICING,
+    get_model_pricing
+)
 from utils.text_extractor import TextExtractor
 from utils.token_estimator import TokenEstimator
 
@@ -33,7 +36,8 @@ def api_providers():
     """Get all pricing data structure"""
     return jsonify({
         'providers': list(PRICING.keys()),
-        'pricing': PRICING
+        'pricing': PRICING,
+        'unit': 'per_million_tokens'
     })
 
 
@@ -79,17 +83,42 @@ def api_upload():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/tokens', methods=['POST'])
+def api_tokens():
+    """
+    Estimate tokens for a block of text.
+    Expects JSON: {text: "..."}
+    Returns: {tokens_estimated: int, words: int}
+    """
+    data = request.get_json() or {}
+    text = data.get('text', '')
+    if not isinstance(text, str):
+        return jsonify({'error': 'Text must be a string'}), 400
+
+    word_count = len(text.split())
+    tokens = TokenEstimator.estimate(text=text)
+
+    return jsonify({
+        'tokens_estimated': tokens,
+        'words': word_count
+    })
+
+
 @app.route('/api/calculate', methods=['POST'])
 def api_calculate():
     """
     Calculate pricing based on provider, region, model, and tokens
-    Expects JSON: {provider, region, model, tokens}
+    Expects JSON: {
+        provider, region, model,
+        input_tokens, output_tokens, cached_tokens,
+        prompt_tokens?, document_tokens?
+    }
     Returns: JSON with cost calculation details
     """
     data = request.get_json()
     
     # Validate input
-    required_fields = ['provider', 'region', 'model', 'tokens']
+    required_fields = ['provider', 'region', 'model', 'input_tokens', 'output_tokens', 'cached_tokens']
     for field in required_fields:
         if field not in data:
             return jsonify({'error': f'Missing required field: {field}'}), 400
@@ -98,28 +127,67 @@ def api_calculate():
     region = data['region']
     model = data['model']
     
-    try:
-        tokens = int(data['tokens'])
-        if tokens < 1:
-            return jsonify({'error': 'Tokens must be at least 1'}), 400
-    except (ValueError, TypeError):
-        return jsonify({'error': 'Invalid token count'}), 400
+    def parse_tokens(value, field_name):
+        try:
+            tokens_value = int(value)
+        except (ValueError, TypeError):
+            raise ValueError(f'Invalid token count for {field_name}')
+        if tokens_value < 0:
+            raise ValueError(f'{field_name} must be zero or greater')
+        return tokens_value
     
-    # Get rate
-    rate = get_rate(provider, region, model)
-    if rate is None:
+    try:
+        input_tokens = parse_tokens(data['input_tokens'], 'input_tokens')
+        output_tokens = parse_tokens(data['output_tokens'], 'output_tokens')
+        cached_tokens = parse_tokens(data['cached_tokens'], 'cached_tokens')
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+    
+    model_pricing = get_model_pricing(provider, region, model)
+    if model_pricing is None:
         return jsonify({'error': 'Invalid provider/region/model combination'}), 400
     
-    # Calculate cost
-    cost = (tokens / 1000) * rate
+    TOKENS_PER_MILLION = 1_000_000
+    input_rate = model_pricing.get('input_per_million', 0)
+    output_rate = model_pricing.get('output_per_million', 0)
+    cached_rate = model_pricing.get('cached_per_million', 0)
+
+    def cost_component(token_count, rate):
+        if token_count == 0 or rate == 0:
+            return 0.0
+        return (token_count / TOKENS_PER_MILLION) * rate
+
+    input_cost = cost_component(input_tokens, input_rate)
+    output_cost = cost_component(output_tokens, output_rate)
+    cached_cost = cost_component(cached_tokens, cached_rate)
+    total_cost = input_cost + output_cost + cached_cost
+
+    prompt_tokens = parse_tokens(data.get('prompt_tokens', 0), 'prompt_tokens') if 'prompt_tokens' in data else 0
+    document_tokens = parse_tokens(data.get('document_tokens', 0), 'document_tokens') if 'document_tokens' in data else 0
     
     return jsonify({
-        'cost_usd': round(cost, 6),
-        'rate_per_1k': rate,
-        'tokens': tokens,
+        'cost_usd': round(total_cost, 6),
         'provider': provider,
         'region': region,
-        'model': model
+        'model': model,
+        'rates_per_million': {
+            'input': input_rate,
+            'output': output_rate,
+            'cached': cached_rate
+        },
+        'tokens': {
+            'input': input_tokens,
+            'output': output_tokens,
+            'cached': cached_tokens,
+            'prompt': prompt_tokens,
+            'documents': document_tokens
+        },
+        'breakdown': {
+            'input_cost': round(input_cost, 6),
+            'output_cost': round(output_cost, 6),
+            'cached_cost': round(cached_cost, 6),
+            'total_cost': round(total_cost, 6)
+        }
     })
 
 

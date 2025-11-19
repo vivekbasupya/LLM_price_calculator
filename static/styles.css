@@ -52,6 +52,7 @@ header h1 {
     margin-bottom: 0.5rem;
     background: linear-gradient(135deg, var(--primary), #a855f7);
     -webkit-background-clip: text;
+    background-clip: text;
     -webkit-text-fill-color: transparent;
 }
 
@@ -212,6 +213,16 @@ header p {
 
 .input-field::placeholder {
     color: rgba(148, 163, 184, 0.8);
+}
+
+.input-field[readonly] {
+    cursor: not-allowed;
+    opacity: 0.85;
+}
+
+.input-field.manual-override {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.25);
 }
 
 .input-field:focus, .select-field:focus {
@@ -528,6 +539,26 @@ header p {
 
 .hidden {
     display: none !important;
+}
+
+.textarea-field {
+    resize: vertical;
+    min-height: 120px;
+}
+
+.token-breakdown {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.token-pill {
+    border-radius: 999px;
+    padding: 0.4rem 0.85rem;
+    background: rgba(99, 102, 241, 0.15);
+    border: 1px solid rgba(99, 102, 241, 0.35);
+    font-size: 0.85rem;
+    color: #fff;
 }
 
 /* Responsive */
