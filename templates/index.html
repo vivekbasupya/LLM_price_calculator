@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Pricing Predictor</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="eyebrow">Live calculator · Multi-cloud ready</div>
+            <h1>💰 LLM Pricing Predictor</h1>
+            <p>Estimate prompt + completion spend with instant insights.</p>
+
+            <div class="hero-meta">
+                <div class="meta-card">
+                    <span>Tokens Selected</span>
+                    <strong id="metaTokens">—</strong>
+                    <small>Live input or auto-estimated</small>
+                </div>
+                <div class="meta-card">
+                    <span>Provider</span>
+                    <strong id="metaProvider">—</strong>
+                    <small>Regions & models auto-filtered</small>
+                </div>
+                <div class="meta-card">
+                    <span>Confidence</span>
+                    <strong id="metaConfidence">Waiting…</strong>
+                    <small id="metaConfidenceHint">Upload or enter tokens to begin</small>
+                </div>
+            </div>
+        </header>
+
+        <div class="main-content">
+            <!-- Left Panel: Input Section -->
+            <div class="panel input-panel">
+                <h2>📊 Input</h2>
+                
+                <!-- File Upload -->
+                <div class="section">
+                    <label class="section-title">Upload Document</label>
+                    <div class="upload-area" id="uploadArea">
+                        <input type="file" id="fileInput" accept=".txt,.pdf,.docx" hidden>
+                        <div class="upload-content">
+                            <span class="upload-icon">📄</span>
+                            <p>Click to upload or drag & drop</p>
+                            <small>PDF, TXT, DOCX (Max 16MB)</small>
+                        </div>
+                    </div>
+                    <div id="uploadStatus" class="upload-status"></div>
+                </div>
+
+                <!-- Token Input -->
+                <div class="section">
+                    <label class="section-title" for="tokenInput">Token Count</label>
+                    <input type="number" id="tokenInput" placeholder="Enter token count" min="1" class="input-field">
+                    <small class="hint">Or upload a document to auto-estimate</small>
+                </div>
+
+                <!-- Provider Selection -->
+                <div class="section">
+                    <label class="section-title" for="providerSelect">Provider</label>
+                    <select id="providerSelect" class="select-field">
+                        <option value="">Select Provider</option>
+                    </select>
+                </div>
+
+                <!-- Region Selection -->
+                <div class="section">
+                    <label class="section-title" for="regionSelect">Region</label>
+                    <select id="regionSelect" class="select-field" disabled>
+                        <option value="">Select Region</option>
+                    </select>
+                </div>
+
+                <!-- Model Selection -->
+                <div class="section">
+                    <label class="section-title" for="modelSelect">Model</label>
+                    <select id="modelSelect" class="select-field" disabled>
+                        <option value="">Select Model</option>
+                    </select>
+                </div>
+
+                <!-- Calculate Button -->
+                <button id="calculateBtn" class="btn-primary" disabled>Calculate Pricing</button>
+
+                <div class="progress-tracker">
+                    <div class="step" id="step-tokens">
+                        <span class="step-dot"></span>
+                        <div>
+                            <p>Tokens</p>
+                            <small>Enter manually or auto-estimate</small>
+                        </div>
+                    </div>
+                    <div class="step" id="step-provider">
+                        <span class="step-dot"></span>
+                        <div>
+                            <p>Provider & Region</p>
+                            <small>Filters available models</small>
+                        </div>
+                    </div>
+                    <div class="step" id="step-model">
+                        <span class="step-dot"></span>
+                        <div>
+                            <p>Model</p>
+                            <small>Pick the best fit for your workload</small>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="smart-hint" id="smartHint">
+                    Start with a document upload to auto-estimate tokens.
+                </div>
+            </div>
+
+            <!-- Right Panel: Output Section -->
+            <div class="panel output-panel">
+                <h2>💵 Cost Breakdown</h2>
+                <div class="output-toolbar">
+                    <div class="selection-summary" id="selectionSummary">
+                        Waiting for your selections…
+                    </div>
+                    <button class="pill-btn" id="refreshBtn" title="Recalculate" disabled>
+                        ⟳ Refresh
+                    </button>
+                </div>
+                <div id="outputContent" class="output-content">
+                    <div class="empty-state">
+                        <span class="empty-icon">📋</span>
+                        <p>Configure your options and click Calculate to see pricing</p>
+                    </div>
+                </div>
+                <div id="insightsPanel" class="insights-panel hidden"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global state
+        let pricingData = {};
+        
+        // Initialize app
+        document.addEventListener('DOMContentLoaded', async () => {
+            await loadPricingData();
+            setupEventListeners();
+            updateLiveSummary();
+        });
+
+        // Load pricing data from API
+        async function loadPricingData() {
+            try {
+                const response = await fetch('/api/providers');
+                const data = await response.json();
+                pricingData = data.pricing;
+                populateProviders(data.providers);
+            } catch (error) {
+                showError('Failed to load pricing data');
+            }
+        }
+
+        // Populate provider dropdown
+        function populateProviders(providers) {
+            const select = document.getElementById('providerSelect');
+            providers.forEach(provider => {
+                const option = document.createElement('option');
+                option.value = provider;
+                option.textContent = provider;
+                select.appendChild(option);
+            });
+        }
+
+        // Setup event listeners
+        function setupEventListeners() {
+            // File upload
+            const uploadArea = document.getElementById('uploadArea');
+            const fileInput = document.getElementById('fileInput');
+            
+            uploadArea.addEventListener('click', () => fileInput.click());
+            fileInput.addEventListener('change', handleFileUpload);
+            
+            // Drag and drop
+            uploadArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                uploadArea.classList.add('drag-over');
+            });
+            uploadArea.addEventListener('dragleave', () => {
+                uploadArea.classList.remove('drag-over');
+            });
+            uploadArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                uploadArea.classList.remove('drag-over');
+                if (e.dataTransfer.files.length) {
+                    fileInput.files = e.dataTransfer.files;
+                    handleFileUpload();
+                }
+            });
+
+            // Dropdowns
+            document.getElementById('providerSelect').addEventListener('change', handleProviderChange);
+            document.getElementById('regionSelect').addEventListener('change', handleRegionChange);
+            document.getElementById('modelSelect').addEventListener('change', validateForm);
+            document.getElementById('tokenInput').addEventListener('input', validateForm);
+            
+            // Calculate button
+            document.getElementById('calculateBtn').addEventListener('click', calculatePricing);
+            document.getElementById('refreshBtn').addEventListener('click', calculatePricing);
+        }
+
+        // Handle file upload
+        async function handleFileUpload() {
+            const fileInput = document.getElementById('fileInput');
+            const statusDiv = document.getElementById('uploadStatus');
+            
+            if (!fileInput.files.length) return;
+            
+            const file = fileInput.files[0];
+            statusDiv.innerHTML = '<span class="status-loading">⏳ Processing file...</span>';
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            try {
+                const response = await fetch('/api/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    document.getElementById('tokenInput').value = data.tokens_estimated;
+                    statusDiv.innerHTML = `
+                        <div class="status-success">
+                            ✅ ${data.filename}<br>
+                            <small>${data.words} words • ${data.characters} characters • ~${data.tokens_estimated} tokens</small>
+                        </div>
+                    `;
+                    validateForm();
+                } else {
+                    statusDiv.innerHTML = `<span class="status-error">❌ ${data.error}</span>`;
+                }
+            } catch (error) {
+                statusDiv.innerHTML = '<span class="status-error">❌ Upload failed</span>';
+            }
+        }
+
+        // Handle provider change
+        function handleProviderChange(e) {
+            const provider = e.target.value;
+            const regionSelect = document.getElementById('regionSelect');
+            const modelSelect = document.getElementById('modelSelect');
+            
+            // Reset dependent dropdowns
+            regionSelect.innerHTML = '<option value="">Select Region</option>';
+            modelSelect.innerHTML = '<option value="">Select Model</option>';
+            modelSelect.disabled = true;
+            
+            if (!provider) {
+                regionSelect.disabled = true;
+                validateForm();
+                return;
+            }
+            
+            // Populate regions
+            const regions = Object.keys(pricingData[provider]);
+            regions.forEach(region => {
+                const option = document.createElement('option');
+                option.value = region;
+                option.textContent = region;
+                regionSelect.appendChild(option);
+            });
+            
+            regionSelect.disabled = false;
+            validateForm();
+        }
+
+        // Handle region change
+        function handleRegionChange(e) {
+            const provider = document.getElementById('providerSelect').value;
+            const region = e.target.value;
+            const modelSelect = document.getElementById('modelSelect');
+            
+            modelSelect.innerHTML = '<option value="">Select Model</option>';
+            
+            if (!region) {
+                modelSelect.disabled = true;
+                validateForm();
+                return;
+            }
+            
+            // Populate models
+            const models = Object.keys(pricingData[provider][region]);
+            models.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model;
+                option.textContent = model;
+                modelSelect.appendChild(option);
+            });
+            
+            modelSelect.disabled = false;
+            validateForm();
+        }
+
+        // Validate form and enable/disable calculate button
+        function validateForm() {
+            const tokens = document.getElementById('tokenInput').value;
+            const provider = document.getElementById('providerSelect').value;
+            const region = document.getElementById('regionSelect').value;
+            const model = document.getElementById('modelSelect').value;
+            const btn = document.getElementById('calculateBtn');
+            const refreshBtn = document.getElementById('refreshBtn');
+            
+            btn.disabled = !(tokens && provider && region && model && parseInt(tokens) >= 1);
+            refreshBtn.disabled = btn.disabled;
+            updateLiveSummary();
+        }
+
+        // Calculate pricing
+        async function calculatePricing() {
+            if (document.getElementById('calculateBtn').disabled) return;
+            const tokens = parseInt(document.getElementById('tokenInput').value);
+            const provider = document.getElementById('providerSelect').value;
+            const region = document.getElementById('regionSelect').value;
+            const model = document.getElementById('modelSelect').value;
+            
+            const outputDiv = document.getElementById('outputContent');
+            outputDiv.innerHTML = '<div class="loading">⏳ Calculating...</div>';
+            const refreshBtn = document.getElementById('refreshBtn');
+            refreshBtn.disabled = true;
+            
+            try {
+                const response = await fetch('/api/calculate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ provider, region, model, tokens })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    displayResult(data);
+                } else {
+                    outputDiv.innerHTML = `<div class="error">❌ ${data.error}</div>`;
+                }
+            } catch (error) {
+                outputDiv.innerHTML = '<div class="error">❌ Calculation failed</div>';
+            } finally {
+                validateForm();
+            }
+        }
+
+        // Display calculation result
+        function displayResult(data) {
+            const output = document.getElementById('outputContent');
+            const perMillion = data.rate_per_1k * 1000;
+            const effective = (data.cost_usd / data.tokens) * 1000;
+            const monthly = data.cost_usd * 30;
+
+            output.innerHTML = `
+                <div class="result">
+                    <div class="result-header">
+                        <div>
+                            <p class="result-eyebrow">${data.provider} · ${data.region}</p>
+                            <h3>${data.model}</h3>
+                        </div>
+                        <div class="result-cost">
+                            ${formatUsd(data.cost_usd)}
+                            <small>Total for ${data.tokens.toLocaleString()} tokens</small>
+                        </div>
+                    </div>
+
+                    <div class="metrics-grid">
+                        <div class="metric-card">
+                            <span>Rate per 1K</span>
+                            <strong>${formatUsd(data.rate_per_1k)}</strong>
+                            <small>Catalog price</small>
+                        </div>
+                        <div class="metric-card">
+                            <span>Effective rate</span>
+                            <strong>${formatUsd(effective)}</strong>
+                            <small>Based on this token batch</small>
+                        </div>
+                        <div class="metric-card">
+                            <span>Cost per 1M</span>
+                            <strong>${formatUsd(perMillion)}</strong>
+                            <small>Use for enterprise rollups</small>
+                        </div>
+                    </div>
+
+                    <div class="result-details">
+                        <div class="detail-row">
+                            <span class="detail-label">Tokens</span>
+                            <span class="detail-value">${data.tokens.toLocaleString()}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Rate (USD / 1K)</span>
+                            <span class="detail-value">${formatUsd(data.rate_per_1k)}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Projected 30-day spend</span>
+                            <span class="detail-value">${formatUsd(monthly)}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            updateInsights(data, { perMillion, monthly });
+        }
+
+        function showError(message) {
+            alert(message);
+        }
+
+        function updateLiveSummary() {
+            const tokens = document.getElementById('tokenInput').value;
+            const providerValue = document.getElementById('providerSelect').value;
+            const regionValue = document.getElementById('regionSelect').value;
+            const modelValue = document.getElementById('modelSelect').value;
+
+            document.getElementById('metaTokens').textContent = tokens ? Number(tokens).toLocaleString() : '—';
+            document.getElementById('metaProvider').textContent = providerValue ? providerValue : 'Pick one';
+
+            const selectionSummary = document.getElementById('selectionSummary');
+            selectionSummary.textContent = `${tokens ? Number(tokens).toLocaleString() : '—'} tokens · ${providerValue || '—'} · ${regionValue || '—'} · ${modelValue || '—'}`;
+
+            updateProgressIndicators({ tokens, provider: providerValue, region: regionValue, model: modelValue });
+            updateSmartHint({ tokens, provider: providerValue, region: regionValue, model: modelValue });
+        }
+
+        function updateProgressIndicators(state) {
+            const steps = [
+                { id: 'step-tokens', done: !!state.tokens },
+                { id: 'step-provider', done: !!(state.provider && state.region) },
+                { id: 'step-model', done: !!state.model }
+            ];
+
+            steps.forEach((step, index) => {
+                const el = document.getElementById(step.id);
+                el.classList.toggle('completed', step.done);
+                el.classList.toggle('active', !step.done && !steps.slice(0, index).some(prev => !prev.done));
+            });
+
+            const confidence = document.getElementById('metaConfidence');
+            const confidenceHint = document.getElementById('metaConfidenceHint');
+            const doneCount = steps.filter(step => step.done).length;
+            const messages = [
+                'Waiting…',
+                'Rough sketch',
+                'Nearly there',
+                'Ready to calculate'
+            ];
+            confidence.textContent = messages[doneCount];
+            confidenceHint.textContent = doneCount < 3 ? 'Complete the highlighted step' : 'Hit Calculate to refresh results';
+        }
+
+        function updateSmartHint(state) {
+            const hint = document.getElementById('smartHint');
+            if (!state.tokens) {
+                hint.textContent = 'Upload a PDF/TXT/DOCX to auto-estimate tokens.';
+            } else if (!state.provider || !state.region) {
+                hint.textContent = 'Pick a provider + region to unlock model availability.';
+            } else if (!state.model) {
+                hint.textContent = 'Choose a model to compare final costs.';
+            } else {
+                hint.textContent = 'Great! Click Calculate to refresh the breakdown.';
+            }
+        }
+
+        function updateInsights(data, derived) {
+            const panel = document.getElementById('insightsPanel');
+            panel.classList.remove('hidden');
+            const millionRuns = (1_000_000 / data.tokens).toFixed(1);
+            panel.innerHTML = `
+                <h3>Smart Insights</h3>
+                <div class="insight-grid">
+                    <div class="insight-card">
+                        <span>Per million tokens</span>
+                        <strong>${formatUsd(derived.perMillion)}</strong>
+                        <p>Budget this for each million-token batch (${millionRuns}× your current run).</p>
+                    </div>
+                    <div class="insight-card">
+                        <span>30-day projection</span>
+                        <strong>${formatUsd(derived.monthly)}</strong>
+                        <p>Assuming you run this workload daily.</p>
+                    </div>
+                    <div class="insight-card">
+                        <span>Ops tip</span>
+                        <p>If tokens fluctuate, keep <strong>${formatUsd(data.rate_per_1k)} / 1K</strong> as your guardrail.</p>
+                    </div>
+                </div>
+            `;
+        }
+
+        function formatUsd(value) {
+            return new Intl.NumberFormat('en-US', {
+                style: 'currency',
+                currency: 'USD',
+                minimumFractionDigits: value >= 1 ? 2 : 4,
+                maximumFractionDigits: 6
+            }).format(value);
+        }
+    </script>
+</body>
+</html>
