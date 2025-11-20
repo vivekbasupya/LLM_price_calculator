@@ -167,6 +167,10 @@
         let pricingData = {};
         const tokenState = { prompt: 0, documents: 0, manualOverride: false, manualTokens: 0 };
         let promptEstimateSeq = 0;
+        // Smart Insight usage assumptions (user-adjustable)
+        let usageRunsPerDay = 0;
+        let usageDays = 0;
+        let lastInsightsData = null;
         
         document.addEventListener('DOMContentLoaded', async () => {
             await loadPricingData();
@@ -468,7 +472,6 @@
             const rates = data.rates_per_million;
             const breakdown = data.breakdown;
             const tokens = data.tokens;
-            const monthly = breakdown.total_cost * 30;
 
             output.innerHTML = `
                 <div class="result">
@@ -515,8 +518,8 @@
                             <span class="detail-value">${formatTokens(tokens.cached)} · ${formatUsd(breakdown.cached_cost)}</span>
                         </div>
                         <div class="detail-row">
-                            <span class="detail-label">Projected 30-day spend</span>
-                            <span class="detail-value">${formatUsd(monthly)}</span>
+                            <span class="detail-label">Projected spend</span>
+                            <span class="detail-value" id="projectedSpendDetail">${formatUsd(calculateProjectedSpend(breakdown.total_cost))}</span>
                         </div>
                     </div>
                 </div>
@@ -616,31 +619,142 @@
         function updateInsights(data) {
             const panel = document.getElementById('insightsPanel');
             panel.classList.remove('hidden');
-            const tokens = data.tokens;
-            const rates = data.rates_per_million;
-            const breakdown = data.breakdown;
+            lastInsightsData = data;
+
+            if (!panel.dataset.initialized) {
+                panel.innerHTML = `
+                    <h3>Smart Insights</h3>
+                    <div class="insight-controls">
+                        <div class="insight-control">
+                            <label for="runsPerDayInput">Estimated runs per day</label>
+                            <input id="runsPerDayInput" type="text" inputmode="numeric" pattern="[0-9]*" value="0" class="input-field">
+                        </div>
+                        <div class="insight-control">
+                            <label for="usageDaysInput">Projected days of usage</label>
+                            <input id="usageDaysInput" type="text" inputmode="numeric" pattern="[0-9]*" value="0" class="input-field">
+                        </div>
+                    </div>
+                    <div class="insight-grid">
+                        <div class="insight-card">
+                            <span>Per million input tokens</span>
+                            <strong data-role="per-million-input">$0.00</strong>
+                            <p>Budget this for each million prompt tokens you process.</p>
+                        </div>
+                        <div class="insight-card">
+                            <span>Projected spend</span>
+                            <strong data-role="projected-spend-value">$0.00</strong>
+                            <p data-role="projected-spend-hint">Set usage assumptions to see totals.</p>
+                        </div>
+                        <div class="insight-card">
+                            <span>Scaling hint</span>
+                            <p data-role="scaling-hint">Upload workload to see scaling tips.</p>
+                        </div>
+                    </div>
+                `;
+                panel.dataset.initialized = 'true';
+                wireInsightInputs();
+            }
+
+            refreshSmartInsights();
+        }
+
+        function wireInsightInputs() {
+            const runsInput = document.getElementById('runsPerDayInput');
+            const daysInput = document.getElementById('usageDaysInput');
+            
+            const handleFocus = (event) => {
+                if (event.target.value === '0') {
+                    event.target.value = '';
+                }
+                requestAnimationFrame(() => event.target.select());
+            };
+
+            const handleBlur = (event, setter) => {
+                const value = event.target.value.trim();
+                if (value === '') {
+                    setter(0);
+                    event.target.value = '0';
+                } else {
+                    const sanitized = sanitizePositiveInt(value);
+                    setter(sanitized);
+                    event.target.value = sanitized.toString();
+                }
+                refreshSmartInsights();
+            };
+
+            const handleInput = (event, setter) => {
+                const sanitized = sanitizePositiveInt(event.target.value);
+                setter(sanitized);
+                refreshSmartInsights();
+            };
+
+            if (runsInput) {
+                runsInput.addEventListener('focus', handleFocus);
+                runsInput.addEventListener('blur', (e) => handleBlur(e, (val) => { usageRunsPerDay = val; }));
+                runsInput.addEventListener('input', (e) => handleInput(e, (val) => { usageRunsPerDay = val; }));
+            }
+
+            if (daysInput) {
+                daysInput.addEventListener('focus', handleFocus);
+                daysInput.addEventListener('blur', (e) => handleBlur(e, (val) => { usageDays = val; }));
+                daysInput.addEventListener('input', (e) => handleInput(e, (val) => { usageDays = val; }));
+            }
+        }
+
+        function sanitizePositiveInt(value) {
+            if (!value) return 0;
+            const numbersOnly = value.toString().replace(/[^\d]/g, '');
+            if (!numbersOnly) return 0;
+            const parsed = parseInt(numbersOnly, 10);
+            return Number.isNaN(parsed) ? 0 : parsed;
+        }
+
+        function calculateProjectedSpend(baseCost) {
+            if (!baseCost) return 0;
+            return baseCost * Math.max(usageRunsPerDay, 0) * Math.max(usageDays, 0);
+        }
+
+        function refreshSmartInsights() {
+            if (!lastInsightsData) return;
+
+            const panel = document.getElementById('insightsPanel');
+            const runsInput = document.getElementById('runsPerDayInput');
+            const daysInput = document.getElementById('usageDaysInput');
+
+            if (runsInput && document.activeElement !== runsInput) {
+                runsInput.value = usageRunsPerDay.toString();
+            }
+            if (daysInput && document.activeElement !== daysInput) {
+                daysInput.value = usageDays.toString();
+            }
+
+            const tokens = lastInsightsData.tokens;
+            const rates = lastInsightsData.rates_per_million;
+            const breakdown = lastInsightsData.breakdown;
             const totalTokens = tokens.input + tokens.output;
             const millionRuns = totalTokens ? (1_000_000 / totalTokens).toFixed(1) : '—';
+            const projectedSpend = calculateProjectedSpend(breakdown.total_cost);
 
-            panel.innerHTML = `
-                <h3>Smart Insights</h3>
-                <div class="insight-grid">
-                    <div class="insight-card">
-                        <span>Per million input tokens</span>
-                        <strong>${formatUsd(rates.input)}</strong>
-                        <p>Budget this for each million prompt tokens you process.</p>
-                    </div>
-                    <div class="insight-card">
-                        <span>30-day projection</span>
-                        <strong>${formatUsd(breakdown.total_cost * 30)}</strong>
-                        <p>Assuming you repeat this workload daily.</p>
-                    </div>
-                    <div class="insight-card">
-                        <span>Scaling hint</span>
-                        <p>This token mix repeats ~${millionRuns}× to reach a million-token batch.</p>
-                    </div>
-                </div>
-            `;
+            const perMillionEl = panel.querySelector('[data-role="per-million-input"]');
+            if (perMillionEl) perMillionEl.textContent = formatUsd(rates.input);
+
+            const projectedValueEl = panel.querySelector('[data-role="projected-spend-value"]');
+            if (projectedValueEl) projectedValueEl.textContent = formatUsd(projectedSpend);
+
+            const projectedHintEl = panel.querySelector('[data-role="projected-spend-hint"]');
+            if (projectedHintEl) {
+                projectedHintEl.textContent = `Based on ~${usageRunsPerDay}× runs per day for ${usageDays} day(s).`;
+            }
+
+            const scalingHintEl = panel.querySelector('[data-role="scaling-hint"]');
+            if (scalingHintEl) {
+                scalingHintEl.textContent = `This token mix repeats ~${millionRuns}× to reach a million-token batch.`;
+            }
+
+            const projectedDetailEl = document.getElementById('projectedSpendDetail');
+            if (projectedDetailEl) {
+                projectedDetailEl.textContent = formatUsd(projectedSpend);
+            }
         }
 
         function formatUsd(value) {
